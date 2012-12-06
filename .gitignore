@@ -1,0 +1,8 @@
+# Ignore staging and debugging files that take up absurd amounts of space.
+proc/
+apache/
+apache_mod_php/
+mysql/
+php/
+staging/
+installed.dat

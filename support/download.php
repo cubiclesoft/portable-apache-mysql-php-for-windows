@@ -1,0 +1,378 @@
+<?php
+	// Portable Apache, MySQL, PHP downloader.
+	// (C) 2012 CubicleSoft.  All Rights Reserved.
+
+	if (!isset($forcedownload))  $forcedownload = false;
+
+	$installpath = str_replace("\\", "/", dirname(dirname(__FILE__))) . "/";
+	$stagingpath = $installpath . "staging/";
+
+	require_once $installpath . "support/base.php";
+	require_once $installpath . "support/support/http.php";
+	require_once $installpath . "support/support/web_browser.php";
+	require_once $installpath . "support/support/simple_html_dom.php";
+
+	function ResetStagingArea($path)
+	{
+		if (substr($path, -1) == "/")  $path = substr($path, 0, -1);
+
+		$dir = opendir($path);
+		if ($dir)
+		{
+			while (($file = readdir($dir)) !== false)
+			{
+				if ($file != "." && $file != "..")
+				{
+					if (is_link($path . "/" . $file) || is_file($path . "/" . $file))  unlink($path . "/" . $file);
+					else
+					{
+						ResetStagingArea($path . "/" . $file);
+						rmdir($path . "/" . $file);
+					}
+				}
+			}
+
+			closedir($dir);
+		}
+	}
+
+	$html = new simple_html_dom();
+
+	function DownloadFailed($msg)
+	{
+		echo "\n";
+		echo "Fatal error:  Download failed.\n";
+		echo $msg . "\n";
+
+		sleep(5);
+		exit();
+	}
+
+	function DownloadAndExtract_Callback($response, $data, $opts)
+	{
+		if ($response["code"] == 200)
+		{
+			$size = ftell($opts);
+			fwrite($opts, $data);
+
+			if ($size % 1000000 > ($size + strlen($data)) % 1000000)  echo ".";
+		}
+
+		return true;
+	}
+
+	function DownloadAndExtract($installkey, $url)
+	{
+		global $stagingpath, $web;
+
+		echo "Downloading:  " . $url . "\n";
+		echo "Please wait...";
+
+		$fp = fopen($stagingpath . $installkey . ".zip", "wb");
+		$web2 = clone $web;
+		$options = array(
+			"read_body_callback" => "DownloadAndExtract_Callback",
+			"read_body_callback_opts" => $fp
+		);
+		$result = $web2->Process($url, "auto", $options);
+		fclose($fp);
+
+		if (!$result["success"])  DownloadFailed("Error retrieving URL.  " . $result["error"]);
+		else if ($result["response"]["code"] != 200)  DownloadFailed("Error retrieving URL.  Server returned:  " . $result["response"]["code"] . " " . $result["response"]["meaning"]);
+
+		echo "\n";
+		echo "ZIP file downloaded successfully.\n";
+		echo "Extracting...";
+
+		$emptyfiles = array();
+		$num = 0;
+		@mkdir($stagingpath . $installkey);
+		$zip = zip_open($stagingpath . $installkey . ".zip");
+		if (!is_resource($zip))  DownloadFailed("The ZIP file '" . $stagingpath . $installkey . ".zip" . "' was unable to be opened for reading.");
+		while (($zipentry = zip_read($zip)) !== false)
+		{
+			$name = str_replace("\\", "/", zip_entry_name($zipentry));
+			$name = str_replace("../", "/", $name);
+			$name = str_replace("./", "/", $name);
+			$name = preg_replace("/\/+/", "/", $name);
+
+			$pos = strrpos($name, "/");
+			if ($pos !== false)
+			{
+				$dirname = substr($name, 0, $pos);
+				@mkdir($stagingpath . $installkey . "/" . $dirname, 0777, true);
+				if (trim(substr($name, $pos + 1)) == "")  continue;
+			}
+
+			$size = zip_entry_filesize($zipentry);
+			if ($size == 0)
+			{
+				$emptyfiles[] = $name;
+				continue;
+			}
+
+			if (!zip_entry_open($zip, $zipentry, "rb"))  DownloadFailed("Error opening the ZIP file entry '" . zip_entry_name($name) . "' for reading.");
+			$fp = fopen($stagingpath . $installkey . "/" . $name, "wb");
+			while ($size > 1000000)
+			{
+				fwrite($fp, zip_entry_read($zipentry, $size));
+				$size -= 1000000;
+			}
+			if ($size > 0)  fwrite($fp, zip_entry_read($zipentry, $size));
+			fclose($fp);
+			zip_entry_close($zipentry);
+
+			$num++;
+			if ($num % 10 == 0)  echo ".";
+		}
+		zip_close($zip);
+
+		foreach ($emptyfiles as $name)  @file_put_contents($stagingpath . $installkey . "/" . $name, "");
+
+		echo "\n";
+	}
+
+	function FindExtractedFile($path, $filename)
+	{
+		if (substr($path, -1) == "/")  $path = substr($path, 0, -1);
+
+		if (file_exists($path . "/" . $filename))  return $path . "/" . $filename;
+
+		$dir = opendir($path);
+		if ($dir)
+		{
+			while (($file = readdir($dir)) !== false)
+			{
+				if ($file != "." && $file != "..")
+				{
+					if (is_dir($path . "/" . $file))
+					{
+						$result = FindExtractedFile($path . "/" . $file, $filename);
+						if ($result !== false)  return $result;
+					}
+				}
+			}
+
+			closedir($dir);
+		}
+
+		return false;
+	}
+
+	function SaveInstalledData()
+	{
+		global $installed, $installpath;
+
+		file_put_contents($installpath . "installed.dat", serialize($installed));
+	}
+
+	// Track the versions of stuff that is installed.
+	if (!file_exists($installpath . "installed.dat"))  $installed = array();
+	else
+	{
+		$installed = @unserialize(@file_get_contents($installpath . "installed.dat"));
+		if ($installed === false)  $installed = array();
+	}
+
+	if (!is_dir($stagingpath))  mkdir($stagingpath);
+
+	// Apache.
+	$url = "http://www.apachelounge.com/download/";
+	echo "Detecting latest version of Apache:\n";
+	echo "  " . $url . "\n";
+	echo "Please wait...\n";
+	$web = new WebBrowser();
+	$result = $web->Process($url);
+
+	if (!$result["success"])  DownloadFailed("Error retrieving URL.  " . $result["error"]);
+	else if ($result["response"]["code"] != 200)  DownloadFailed("Error retrieving URL.  Server returned:  " . $result["response"]["code"] . " " . $result["response"]["meaning"]);
+
+	$baseurl = $result["url"];
+
+	$html->load($result["body"]);
+	$rows = $html->find("a[href]");
+	foreach ($rows as $row)
+	{
+		if (preg_match('/^\/download\/win32\/binaries\/httpd-(.+)-win32.zip$/', $row->href, $matches))
+		{
+			echo "Found:  " . $row->href . "\n";
+			echo "Latest version:  " . $matches[1] . "\n";
+			echo "Currently installed:  " . (isset($installed["apache"]) ? $installed["apache"] : "Not installed") . "\n";
+
+			if (!isset($installed["apache"]) || $matches[1] != $installed["apache"])
+			{
+				DownloadAndExtract("apache", ConvertRelativeToAbsoluteURL($baseurl, $row->href));
+
+				$extractpath = dirname(FindExtractedFile($stagingpath, "ABOUT_APACHE.txt")) . "/";
+				@copy($installpath . "vc_redist/msvcr100.dll", $extractpath . "bin/msvcr100.dll");
+				@rename($extractpath . "cgi-bin", $extractpath . "orig-cgi-bin");
+				@rename($extractpath . "conf", $extractpath . "orig-conf");
+				@rename($extractpath . "htdocs", $extractpath . "orig-htdocs");
+				@rename($extractpath . "logs", $extractpath . "orig-logs");
+
+				echo "Copying staging files to final location...\n";
+				CopyDirectory($extractpath, $installpath . "apache");
+
+				echo "Cleaning up...\n";
+				ResetStagingArea($stagingpath);
+
+				$installed["apache"] = $matches[1];
+				SaveInstalledData();
+
+				echo "Apache binaries updated to " . $matches[1] . ".\n";
+			}
+
+			break;
+		}
+	}
+
+	// There is no good way to identify when new binaries are available for the PHP module for Apache.
+	echo "\n";
+	echo "Obtaining latest compatible Apache PHP modules...\n";
+	DownloadAndExtract("apache_mod_php", "http://www.apachelounge.com/download/win32/modules-2.4/php5apache2_4.dll-php-5.4-win32.zip");
+
+	$extractpath = dirname(FindExtractedFile($stagingpath, "ReadMe.txt")) . "/";
+
+	echo "Copying staging files to temporary location...\n";
+	CopyDirectory($extractpath, $installpath . "apache_mod_php");
+
+	echo "Cleaning up...\n";
+	ResetStagingArea($stagingpath);
+
+	// MySQL.
+	$url = "http://dev.mysql.com/downloads/mysql/";
+	echo "\n";
+	echo "Detecting latest version of MySQL:\n";
+	echo "  " . $url . "\n";
+	echo "Please wait...\n";
+	$web = new WebBrowser();
+	$result = $web->Process($url);
+
+	if (!$result["success"])  DownloadFailed("Error retrieving URL.  " . $result["error"]);
+	else if ($result["response"]["code"] != 200)  DownloadFailed("Error retrieving URL.  Server returned:  " . $result["response"]["code"] . " " . $result["response"]["meaning"]);
+
+	$baseurl = $result["url"];
+
+	$lasturl = "";
+	$html->load($result["body"]);
+	$rows = $html->find("div#current_file_list tr");
+	foreach ($rows as $row)
+	{
+		if ($lasturl == "")
+		{
+			$lasturl = $row->find('a[href]', 0);
+			$lasturl = (string)$lasturl->href;
+		}
+		else
+		{
+			$filename = $row->find('td.sub-text', 0);
+			$filename = substr((string)$filename->plaintext, 1, -1);
+
+			if (preg_match('/^mysql-(.+)-win32.zip$/', $filename, $matches))
+			{
+				echo "Found:  " . $filename . "\n";
+				echo "Latest version:  " . $matches[1] . "\n";
+				echo "Currently installed:  " . (isset($installed["mysql"]) ? $installed["mysql"] : "Not installed") . "\n";
+
+				if (!isset($installed["mysql"]) || $matches[1] != $installed["mysql"])
+				{
+					// Read the interstitial page.
+					$result = $web->Process(ConvertRelativeToAbsoluteURL($baseurl, $lasturl));
+
+					if (!$result["success"])  DownloadFailed("Error retrieving URL.  " . $result["error"]);
+					else if ($result["response"]["code"] != 200)  DownloadFailed("Error retrieving URL.  Server returned:  " . $result["response"]["code"] . " " . $result["response"]["meaning"]);
+
+					$baseurl = $result["url"];
+
+					// Seriously uncool:  The relevant element for direct download is hidden on the page unless the user has Javascript enabled.
+					$html->load($result["body"]);
+					$row = $html->find('div#nothanks a[href]', 0);
+
+					DownloadAndExtract("mysql", ConvertRelativeToAbsoluteURL($baseurl, $row->href));
+
+					$extractpath = dirname(FindExtractedFile($stagingpath, "COPYING")) . "/";
+					@rename($extractpath . "data", $extractpath . "orig-data");
+
+					echo "Copying staging files to final location...\n";
+					CopyDirectory($extractpath, $installpath . "mysql");
+
+					echo "Cleaning up...\n";
+					ResetStagingArea($stagingpath);
+
+					$installed["mysql"] = $matches[1];
+					SaveInstalledData();
+
+					echo "MySQL binaries updated to " . $matches[1] . ".\n";
+				}
+
+				break;
+			}
+
+			$lasturl = "";
+		}
+	}
+
+	// PHP.
+	$url = "http://windows.php.net/download/";
+	echo "\n";
+	echo "Detecting latest version of PHP:\n";
+	echo "  " . $url . "\n";
+	echo "Please wait...\n";
+	$web = new WebBrowser();
+	$result = $web->Process($url);
+
+	if (!$result["success"])  DownloadFailed("Error retrieving URL.  " . $result["error"]);
+	else if ($result["response"]["code"] != 200)  DownloadFailed("Error retrieving URL.  Server returned:  " . $result["response"]["code"] . " " . $result["response"]["meaning"]);
+
+	$baseurl = $result["url"];
+
+	$html->load($result["body"]);
+	$rows = $html->find("a[href]");
+	foreach ($rows as $row)
+	{
+		if (preg_match('/^\/downloads\/releases\/php-(5\.4\.\d+)-Win32-VC9-x86.zip$/', $row->href, $matches))
+		{
+			echo "Found:  " . $row->href . "\n";
+			echo "Latest version:  " . $matches[1] . "\n";
+			echo "Currently installed:  " . (isset($installed["php"]) ? $installed["php"] : "Not installed") . "\n";
+
+			if (!is_dir($installpath . "apache_mod_php/PHP " . $matches[1]))  DownloadFailed("Unable to update to PHP " . $matches[1] . " because a compatible Apache module does not exist.");
+			else if (!isset($installed["php"]) || $matches[1] != $installed["php"])
+			{
+				DownloadAndExtract("php", ConvertRelativeToAbsoluteURL($baseurl, $row->href));
+
+				$extractpath = dirname(FindExtractedFile($stagingpath, "php.exe")) . "/";
+
+				echo "Copying staging files to final location...\n";
+				CopyDirectory($extractpath, $installpath . "php");
+
+				echo "Cleaning up...\n";
+				ResetStagingArea($stagingpath);
+
+				$installed["php"] = $matches[1];
+				SaveInstalledData();
+
+				echo "PHP binaries updated to " . $matches[1] . ".\n\n";
+			}
+
+			break;
+		}
+	}
+
+	// Copy the correct Apache PHP module.
+	if (isset($installed["php"]) && is_dir($installpath . "apache_mod_php/PHP " . $installed["php"]))
+	{
+		echo "\n";
+		echo "Copying Apache PHP module to PHP directory...\n";
+		CopyDirectory($installpath . "apache_mod_php/PHP " . $installed["php"], $installpath . "php");
+
+		echo "Cleaning up...\n";
+		ResetStagingArea($installpath . "apache_mod_php");
+		rmdir($installpath . "apache_mod_php");
+	}
+
+	ResetStagingArea($stagingpath);
+	rmdir($stagingpath);
+
+	echo "Updating finished.\n\n";
+?>
