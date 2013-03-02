@@ -226,19 +226,6 @@
 		}
 	}
 
-	// There is no good way to identify when new binaries are available for the PHP module for Apache.
-	echo "\n";
-	echo "Obtaining latest compatible Apache PHP modules...\n";
-	DownloadAndExtract("apache_mod_php", "http://www.apachelounge.com/download/win32/modules-2.4/php5apache2_4.dll-php-5.4-win32.zip");
-
-	$extractpath = dirname(FindExtractedFile($stagingpath, "ReadMe.txt")) . "/";
-
-	echo "Copying staging files to temporary location...\n";
-	CopyDirectory($extractpath, $installpath . "apache_mod_php");
-
-	echo "Cleaning up...\n";
-	ResetStagingArea($stagingpath);
-
 	// MySQL.
 	$url = "http://dev.mysql.com/downloads/mysql/";
 	echo "\n";
@@ -284,25 +271,38 @@
 
 					$baseurl = $result["url"];
 
-					// Seriously uncool:  The relevant element for direct download is hidden on the page unless the user has Javascript enabled.
+					// Seriously uncool:  The div/anchor tag containing the "no thanks, just let me download it already" doesn't have a class name.  Stupid!
 					$html->load($result["body"]);
-					$row = $html->find('div#nothanks a[href]', 0);
+					$rows2 = $html->find('a[href]');
+					$found = false;
+					foreach ($rows2 as $row2)
+					{
+						if (strpos($row2->href, "mysql-" . $matches[1] . "-win32.zip") !== false)
+						{
+							$found = true;
 
-					DownloadAndExtract("mysql", ConvertRelativeToAbsoluteURL($baseurl, $row->href));
+							break;
+						}
+					}
 
-					$extractpath = dirname(FindExtractedFile($stagingpath, "COPYING")) . "/";
-					@rename($extractpath . "data", $extractpath . "orig-data");
+					if ($found)
+					{
+						DownloadAndExtract("mysql", ConvertRelativeToAbsoluteURL($baseurl, $row2->href));
 
-					echo "Copying staging files to final location...\n";
-					CopyDirectory($extractpath, $installpath . "mysql");
+						$extractpath = dirname(FindExtractedFile($stagingpath, "COPYING")) . "/";
+						@rename($extractpath . "data", $extractpath . "orig-data");
 
-					echo "Cleaning up...\n";
-					ResetStagingArea($stagingpath);
+						echo "Copying staging files to final location...\n";
+						CopyDirectory($extractpath, $installpath . "mysql");
 
-					$installed["mysql"] = $matches[1];
-					SaveInstalledData();
+						echo "Cleaning up...\n";
+						ResetStagingArea($stagingpath);
 
-					echo "MySQL binaries updated to " . $matches[1] . ".\n";
+						$installed["mysql"] = $matches[1];
+						SaveInstalledData();
+
+						echo "MySQL binaries updated to " . $matches[1] . ".\n";
+					}
 				}
 
 				break;
@@ -336,8 +336,7 @@
 			echo "Latest version:  " . $matches[1] . "\n";
 			echo "Currently installed:  " . (isset($installed["php"]) ? $installed["php"] : "Not installed") . "\n";
 
-			if (!is_dir($installpath . "apache_mod_php/PHP " . $matches[1]))  DownloadFailed("Unable to update to PHP " . $matches[1] . " because a compatible Apache module does not exist.");
-			else if (!isset($installed["php"]) || $matches[1] != $installed["php"])
+			if (!isset($installed["php"]) || $matches[1] != $installed["php"])
 			{
 				DownloadAndExtract("php", ConvertRelativeToAbsoluteURL($baseurl, $row->href));
 
@@ -357,18 +356,6 @@
 
 			break;
 		}
-	}
-
-	// Copy the correct Apache PHP module.
-	if (isset($installed["php"]) && is_dir($installpath . "apache_mod_php/PHP " . $installed["php"]))
-	{
-		echo "\n";
-		echo "Copying Apache PHP module to PHP directory...\n";
-		CopyDirectory($installpath . "apache_mod_php/PHP " . $installed["php"], $installpath . "php");
-
-		echo "Cleaning up...\n";
-		ResetStagingArea($installpath . "apache_mod_php");
-		rmdir($installpath . "apache_mod_php");
 	}
 
 	ResetStagingArea($stagingpath);
