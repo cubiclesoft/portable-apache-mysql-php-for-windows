@@ -1,5 +1,5 @@
-(Nearly) Portable Apache + MySQL + PHP for Windows
-==================================================
+Portable Apache + MySQL + PHP for Windows
+=========================================
 
 This project is for web developers who prefer manually editing configuration files and want "manual" but quick startup of Apache and MySQL (no Windows services).  No more hunting for ZIP files for each separate piece of software.
 
@@ -10,7 +10,7 @@ GitHub is a perfect fit for this sort of project.  The latest code resides here,
 Features
 --------
 
-* Classic Apache + MySQL + PHP in (almost) a portable format.
+* Classic Apache + MySQL + PHP combo in a portable format.
 * A flashback from the past:  Batch files!  install.bat, start_server.bat, and stop_server.bat to install, start, and stop the software respectively.
 * Installation is designed to just adapt paths to the current host.  No registry mess, no Windows services, no problem.
 * Has a liberal open source license.  MIT or LGPL, your choice.  (Only applies to the new files that this project adds.  Each product has its own separate license.  See below.)
@@ -28,8 +28,6 @@ To upgrade to the latest version, stop the servers with 'stop_server.bat', run '
 
 Troubleshooting
 ---------------
-
-If a dialog box appears saying, "This application has failed to start because the application configuration is incorrect."  Then you will need to install the Visual C++ 2008 Redistributables.  This is the only non-portable part of this project.  I'm looking forward to official VS2010 versions of PHP where the redistributables can be included with the application and the complete nonsense with WinSxS can finally end.
 
 Requires 'taskkill.exe' for 'stop_server.bat' to work properly.  This is part of Windows XP and later.
 

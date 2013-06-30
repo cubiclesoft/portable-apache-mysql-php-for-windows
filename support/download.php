@@ -330,7 +330,7 @@
 	$rows = $html->find("a[href]");
 	foreach ($rows as $row)
 	{
-		if (preg_match('/^\/downloads\/releases\/php-(5\.4\.\d+)-Win32-VC9-x86.zip$/', $row->href, $matches))
+		if (preg_match('/^\/downloads\/releases\/php-(5\.5\.\d+)-Win32-VC11-x86.zip$/', $row->href, $matches))
 		{
 			echo "Found:  " . $row->href . "\n";
 			echo "Latest version:  " . $matches[1] . "\n";
@@ -341,6 +341,7 @@
 				DownloadAndExtract("php", ConvertRelativeToAbsoluteURL($baseurl, $row->href));
 
 				$extractpath = dirname(FindExtractedFile($stagingpath, "php.exe")) . "/";
+				@copy($installpath . "vc_redist/msvcr110.dll", $extractpath . "bin/msvcr110.dll");
 
 				echo "Copying staging files to final location...\n";
 				CopyDirectory($extractpath, $installpath . "php");
