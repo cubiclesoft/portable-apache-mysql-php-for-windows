@@ -6,3 +6,4 @@ mysql/
 php/
 staging/
 installed.dat
+!support/php/
