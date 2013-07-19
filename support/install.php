@@ -73,10 +73,10 @@
 	echo "\n";
 	do
 	{
-		echo "MySQL config [my-medium.ini]: ";
+		echo "MySQL config [my-default.ini]: ";
 		$mysql_config = trim(fgets($fp));
 	} while (!file_exists($basepath . "mysql/" . $mysql_config));
-	if ($mysql_config == "")  $mysql_config = "my-medium.ini";
+	if ($mysql_config == "")  $mysql_config = "my-default.ini";
 
 	echo "\n";
 	echo "-----\n";
