@@ -4,6 +4,10 @@
 
 	if (!isset($forcedownload))  $forcedownload = false;
 
+	echo "\n\n*** THIS REPO IS NOT OFFICIALLY SUPPORTED ANY MORE! ***\n";
+	echo "There is a replacement available on GitHub.\n";
+	echo "Pull requests for this repo are still accepted.\n\n";
+
 	$installpath = str_replace("\\", "/", dirname(dirname(__FILE__))) . "/";
 	$stagingpath = $installpath . "staging/";
 
