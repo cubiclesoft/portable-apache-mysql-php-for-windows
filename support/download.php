@@ -177,7 +177,7 @@
 	if (!is_dir($stagingpath))  mkdir($stagingpath);
 
 	// Apache.
-	$url = "http://www.apachelounge.com/download/";
+	$url = "http://www.apachelounge.com/download/win32/";
 	echo "Detecting latest version of Apache:\n";
 	echo "  " . $url . "\n";
 	echo "Please wait...\n";

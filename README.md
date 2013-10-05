@@ -1,6 +1,8 @@
 Portable Apache + MySQL + PHP for Windows
 =========================================
 
+Note:  MySQL is pretty much a dead project.  They don't really fix bugs or security vulnerabilities.  The developers jumped ship and went to Maria DB or other projects.  See my newer [Portable Apache + Maria DB + PHP for Windows](https://github.com/cubiclesoft/portable-apache-maria-db-php-for-windows) GitHub repo.
+
 This project is for web developers who prefer manually editing configuration files and want "manual" but quick startup of Apache and MySQL (no Windows services).  No more hunting for ZIP files for each separate piece of software.
 
 If XAMPP and similar incarnations are not really your style (e.g. you prefer the command-line and think phpMyAdmin is for weaklings), then this project might be more up your alley.  Note that the primary purpose of this project is to set up a quick-and-dirty local WAMP install that just works and is not intended for use on production servers.
@@ -36,7 +38,7 @@ Sources
 
 The Apache web server is under the Apache License, Version 2.0.  (http://www.apache.org/licenses/LICENSE-2.0.html)
 
-http://www.apachelounge.com/download/
+http://www.apachelounge.com/download/win32/
 
 The MySQL database server is under the MySQL GPL EXCEPTIONS clause for FOSS.  (http://www.mysql.com/about/legal/licensing/foss-exception/)
 

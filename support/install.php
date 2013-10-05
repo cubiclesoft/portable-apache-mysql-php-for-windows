@@ -110,10 +110,10 @@
 		if ($pos !== false)
 		{
 			$pos += strlen("LoadModule xml2enc_module modules/mod_xml2enc.so" . $lineend);
-			$data2 = "LoadModule php5_module \"" . $basepath2 . "php/php5apache2_4.dll\"" . $lineend;
+			$data2 = "LoadModule php5_module \"" . $basepath . "php/php5apache2_4.dll\"" . $lineend;
 			$data2 .= "AddHandler application/x-httpd-php .php" . $lineend;
 			$data2 .= $lineend;
-			$data2 .= "PHPIniDir \"" . $basepath2 . "php\"" . $lineend;
+			$data2 .= "PHPIniDir \"" . $basepath . "php\"" . $lineend;
 			$data = substr($data, 0, $pos) . $data2 . substr($data, $pos);
 		}
 		file_put_contents($basepath2 . "apache/conf/httpd.conf", $data);
