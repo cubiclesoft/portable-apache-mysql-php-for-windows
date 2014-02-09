@@ -1,16 +1,17 @@
 <?php
 	// CubicleSoft PHP web browser state emulation class.
-	// (C) 2012 CubicleSoft.  All Rights Reserved.
+	// (C) 2013 CubicleSoft.  All Rights Reserved.
 
 	// Requires the CubicleSoft PHP HTTP functions for HTTP/HTTPS.
 	class WebBrowser
 	{
-		private $data;
+		private $data, $html;
 
 		public function __construct($prevstate = array())
 		{
 			$this->ResetState();
 			$this->SetState($prevstate);
+			$this->html = false;
 		}
 
 		public function ResetState()
@@ -24,6 +25,7 @@
 				"useragent" => "firefox",
 				"followlocation" => true,
 				"maxfollow" => 20,
+				"extractforms" => false,
 				"httpopts" => array(),
 			);
 		}
@@ -61,10 +63,10 @@
 
 			if (!isset($tempoptions["headers"]))  $tempoptions["headers"] = array();
 			$tempoptions["headers"] = HTTPNormalizeHeaders($tempoptions["headers"]);
-			$referer = (isset($tempoptions["headers"]["Referer"]) ? $tempoptions["headers"]["Referer"] : $this->data["referer"]);
+			if (isset($tempoptions["headers"]["Referer"]))  $this->data["referer"] = $tempoptions["headers"]["Referer"];
 
 			// If a referrer is specified, use it to generate an absolute URL.
-			if ($referer != "")  $url = ConvertRelativeToAbsoluteURL($referer, $url);
+			if ($this->data["referer"] != "")  $url = ConvertRelativeToAbsoluteURL($this->data["referer"], $url);
 
 			$urlinfo = ExtractURL($url);
 
@@ -93,7 +95,7 @@
 					if ($fileext == "css")  $headers["Accept"] = "text/css";
 					else if ($fileext == "png" || $fileext == "jpg" || $fileext == "jpeg" || $fileext == "gif" || $fileext == "svg")  $headers["Accept"] = "image/png, image/svg+xml, image/*;q=0.8, */*;q=0.5";
 					else if ($fileext == "js")  $headers["Accept"] = "application/javascript, */*;q=0.8";
-					else if ($referer != "" || $fileext == "" || $fileext == "html" || $fileext == "xhtml" || $fileext == "xml")  $headers["Accept"] = "text/html, application/xhtml+xml, */*";
+					else if ($this->data["referer"] != "" || $fileext == "" || $fileext == "html" || $fileext == "xhtml" || $fileext == "xml")  $headers["Accept"] = "text/html, application/xhtml+xml, */*";
 					else  $headers["Accept"] = "*/*";
 
 					$headers["Accept-Language"] = "en-US";
@@ -129,7 +131,7 @@
 					$headers["User-Agent"] = GetWebUserAgent($profile == "safari" || $profile == "chrome" ? $profile : $this->data["useragent"]);
 				}
 
-				if ($referer != "")  $headers["Referer"] = $referer;
+				if ($this->data["referer"] != "")  $headers["Referer"] = $this->data["referer"];
 
 				// Generate the final headers array.
 				$headers = array_merge($headers, $httpopts["headers"], $tempoptions["headers"]);
@@ -160,14 +162,14 @@
 				{
 					if (substr($domain, -strlen($dothost)) == $dothost)
 					{
-						foreach ($paths as $path => $cookies)
+						foreach ($paths as $path => $cookies2)
 						{
-							if (substr($path, 0, strlen($cookiepath)) == $cookiepath)
+							if (substr($cookiepath, 0, strlen($path)) == $path)
 							{
-								foreach ($cookies as $num => $info)
+								foreach ($cookies2 as $num => $info)
 								{
 									if (isset($info["expires_ts"]) && $this->GetExpiresTimestamp($info["expires_ts"]) < time())  unset($this->data["cookies"][$domain][$path][$num]);
-									else if ($secure && isset($info["secure"]))  $cookies[$info["name"]] = $info["value"];
+									else if ($secure || !isset($info["secure"]))  $cookies[$info["name"]] = $info["value"];
 								}
 
 								if (!count($this->data["cookies"][$domain][$path]))  unset($this->data["cookies"][$domain][$path]);
@@ -181,6 +183,7 @@
 				$cookies2 = array();
 				foreach ($cookies as $name => $value)  $cookies2[] = rawurlencode($name) . "=" . rawurlencode($value);
 				$headers["Cookie"] = implode("; ", $cookies2);
+				if ($headers["Cookie"] == "")  unset($headers["Cookie"]);
 
 				// Generate the final options array.
 				$options = array_merge($httpopts, $tempoptions);
@@ -194,9 +197,10 @@
 				$result["firstreqts"] = $startts;
 				$result["numredirects"] = $numredirects;
 				$result["redirectts"] = $redirectts;
-				$totalrawsendsize += $result["rawsendsize"];
+				if (isset($result["rawsendsize"]))  $totalrawsendsize += $result["rawsendsize"];
 				$result["totalrawsendsize"] = $totalrawsendsize;
 				unset($result["options"]["files"]);
+				unset($result["options"]["body"]);
 				if (!$result["success"])  return array("success" => false, "error" => HTTPTranslate("Unable to retrieve content.  %s", $result["error"]), "info" => $result, "errorcode" => "retrievewebpage");
 
 				// Set up structures for another round.
@@ -215,11 +219,11 @@
 					$url = $result["headers"]["Location"][0];
 
 					// Generate an absolute URL.
-					$url = ConvertRelativeToAbsoluteURL($referer, $url);
+					if ($this->data["referer"] != "")  $url = ConvertRelativeToAbsoluteURL($this->data["referer"], $url);
 
 					$urlinfo2 = ExtractURL($url);
 
-					if (!isset($this->data["allowedredirprotocols"][$urlinfo2["scheme"]]) && !$this->data["allowedredirprotocols"][$urlinfo2["scheme"]])
+					if (!isset($this->data["allowedredirprotocols"][$urlinfo2["scheme"]]) || !$this->data["allowedredirprotocols"][$urlinfo2["scheme"]])
 					{
 						return array("success" => false, "error" => HTTPTranslate("Protocol '%s' is not allowed.  Server attempted to redirect to '%s'.", $urlinfo2["scheme"], $url), "info" => $result, "errorcode" => "allowed_redir_protocols");
 					}
@@ -302,7 +306,146 @@
 			$result["numredirects"] = $numredirects;
 			$result["redirectts"] = $redirectts;
 
+			// Extract the forms from the page in a parsed format.
+			// Call WebBrowser::GenerateFormRequest() to prepare an actual request for Process().
+			if ($this->data["extractforms"])  $result["forms"] = $this->ExtractForms($result["url"], $result["body"]);
+
 			return $result;
+		}
+
+		public function ExtractForms($baseurl, $data)
+		{
+			$result = array();
+
+			if ($this->html === false)  $this->html = new simple_html_dom();
+			$this->html->load($data);
+			$html5rows = $this->html->find("input[form],textarea[form],select[form],button[form],datalist[id]");
+			$rows = $this->html->find("form");
+			foreach ($rows as $row)
+			{
+				$info = array();
+				if (isset($row->id))  $info["id"] = trim($row->id);
+				if (isset($row->name))  $info["name"] = (string)$row->name;
+				$info["action"] = (isset($row->action) ? ConvertRelativeToAbsoluteURL($baseurl, (string)$row->action) : $baseurl);
+				$info["method"] = (isset($row->method) && strtolower(trim($row->method)) == "post" ? "post" : "get");
+				if ($info["method"] == "post")  $info["enctype"] = (isset($row->enctype) ? strtolower($row->enctype) : "application/x-www-form-urlencoded");
+				if (isset($row->{"accept-charset"}))  $info["accept-charset"] = (string)$row->{"accept-charset"};
+
+				$fields = array();
+				$rows2 = $row->find("input,textarea,select,button");
+				foreach ($rows2 as $row2)
+				{
+					if (!isset($row2->form))  $this->ExtractFieldFromDOM($fields, $row2);
+				}
+
+				// Handle HTML5.
+				if (isset($info["id"]) && $info["id"] != "")
+				{
+					foreach ($html5rows as $row2)
+					{
+						if (strpos(" " . $info["id"] . " ", " " . $row2->form . " ") !== false)  $this->ExtractFieldFromDOM($fields, $row2);
+					}
+				}
+
+				$form = new WebBrowserForm();
+				$form->info = $info;
+				$form->fields = $fields;
+				$result[] = $form;
+			}
+
+			return $result;
+		}
+
+		private function ExtractFieldFromDOM(&$fields, $row)
+		{
+			if (isset($row->name) && is_string($row->name))
+			{
+				switch ($row->tag)
+				{
+					case "input":
+					{
+						$field = array(
+							"id" => (isset($row->id) ? (string)$row->id : false),
+							"type" => "input." . (isset($row->type) ? strtolower($row->type) : "text"),
+							"name" => $row->name,
+							"value" => (isset($row->value) ? html_entity_decode($row->value, ENT_COMPAT, "UTF-8") : "")
+						);
+						if ($field["type"] == "input.radio" || $field["type"] == "input.checkbox")  $field["checked"] = (isset($row->checked));
+
+						$fields[] = $field;
+
+						break;
+					}
+					case "textarea":
+					{
+						$fields[] = array(
+							"id" => (isset($row->id) ? (string)$row->id : false),
+							"type" => "textarea",
+							"name" => $row->name,
+							"value" => html_entity_decode($row->innertext, ENT_COMPAT, "UTF-8")
+						);
+
+						break;
+					}
+					case "select":
+					{
+						if (isset($row->multiple))
+						{
+							// Change the type into multiple checkboxes.
+							$rows = $row->find("option");
+							foreach ($rows as $row2)
+							{
+								$fields[] = array(
+									"id" => (isset($row->id) ? (string)$row->id : false),
+									"type" => "input.checkbox",
+									"name" => $row->name,
+									"value" => (isset($row2->value) ? html_entity_decode($row2->value, ENT_COMPAT, "UTF-8") : ""),
+									"display" => (string)$row2->innertext
+								);
+							}
+						}
+						else
+						{
+							$val = false;
+							$options = array();
+							$rows = $row->find("option");
+							foreach ($rows as $row2)
+							{
+								$options[$row2->value] = (string)$row2->innertext;
+
+								if ($val === false && isset($row2->selected))  $val = html_entity_decode($row2->value, ENT_COMPAT, "UTF-8");
+							}
+							if ($val === false && count($options))
+							{
+								$val = array_keys($options);
+								$val = $val[0];
+							}
+							if ($val === false)  $val = "";
+
+							$fields[] = array(
+								"id" => (isset($row->id) ? (string)$row->id : false),
+								"type" => "select",
+								"name" => $row->name,
+								"value" => $val,
+								"options" => $options
+							);
+						}
+
+						break;
+					}
+					case "button":
+					{
+						$fields[] = array(
+							"id" => (isset($row->id) ? (string)$row->id : false),
+							"type" => "button." . (isset($row->type) ? strtolower($row->type) : "submit"),
+							"name" => $row->name,
+							"value" => (isset($row->value) ? html_entity_decode($row->value, ENT_COMPAT, "UTF-8") : "")
+						);
+
+						break;
+					}
+				}
+			}
 		}
 
 		public function DeleteSessionCookies()
@@ -357,6 +500,154 @@
 			$sec = (int)substr($ts, 17, 2);
 
 			return gmmktime($hour, $min, $sec, $month, $day, $year);
+		}
+	}
+
+	class WebBrowserForm
+	{
+		public $info, $fields;
+
+		public function __construct()
+		{
+			$this->info = array();
+			$this->fields = array();
+		}
+
+		public function FindFormFields($name = false, $value = false, $type = false)
+		{
+			$fields = array();
+			foreach ($this->fields as $num => $field)
+			{
+				if (($type === false || $field["type"] === $type) && ($name === false || $field["name"] === $name) && ($value === false || $field["value"] === $value))
+				{
+					$fields[] = $field;
+				}
+			}
+
+			return $fields;
+		}
+
+		public function GetFormValue($name, $checkval = false, $type = false)
+		{
+			$val = false;
+			foreach ($this->fields as $field)
+			{
+				if (($type === false || $field["type"] === $type) && $field["name"] === $name)
+				{
+					if (is_string($checkval))
+					{
+						if ($checkval === $field["value"])
+						{
+							if ($field["type"] == "input.radio" || $field["type"] == "input.checkbox")  $val = $field["checked"];
+							else  $val = $field["value"];
+						}
+					}
+					else if (($field["type"] != "input.radio" && $field["type"] != "input.checkbox") || $field["checked"])
+					{
+						$val = $field["value"];
+					}
+				}
+			}
+
+			return $val;
+		}
+
+		public function SetFormValue($name, $value, $checked = false, $type = false, $create = false)
+		{
+			$result = false;
+			foreach ($this->fields as $num => $field)
+			{
+				if (($type === false || $field["type"] === $type) && $field["name"] === $name)
+				{
+					if ($field["type"] == "input.radio")
+					{
+						$this->fields[$num]["checked"] = ($field["value"] === $value ? $checked : false);
+						$result = true;
+					}
+					else if ($field["type"] == "input.checkbox")
+					{
+						if ($field["value"] === $value)  $this->fields[$num]["checked"] = $checked;
+						$result = true;
+					}
+					else if ($field["type"] != "select" || !isset($field["options"]) || isset($field["options"][$value]))
+					{
+						$this->fields[$num]["value"] = $value;
+						$result = true;
+					}
+				}
+			}
+
+			// Add the field if it doesn't exist.
+			if (!$result && $create)
+			{
+				$this->fields[] = array(
+					"id" => false,
+					"type" => ($type !== false ? $type : "input.text"),
+					"name" => $name,
+					"value" => $value,
+					"checked" => $checked
+				);
+			}
+
+			return $result;
+		}
+
+		public function GenerateFormRequest($submitname = false, $submitvalue = false)
+		{
+			$method = $this->info["method"];
+			$fields = array();
+			$files = array();
+			foreach ($this->fields as $field)
+			{
+				if ($field["type"] == "input.file")
+				{
+					if (is_array($field["value"]))
+					{
+						$field["value"]["name"] = $field["name"];
+						$files[] = $field["value"];
+						$method = "post";
+					}
+				}
+				else if ($field["type"] == "input.reset" || $field["type"] == "button.reset")
+				{
+				}
+				else if ($field["type"] == "input.submit" || $field["type"] == "button.submit")
+				{
+					if (($submitname === false || $field["name"] === $submitname) && ($submitvalue === false || $field["value"] === $submitvalue))
+					{
+						if (!isset($fields[$field["name"]]))  $fields[$field["name"]] = array();
+						$fields[$field["name"]][] = $field["value"];
+					}
+				}
+				else if (($field["type"] != "input.radio" && $field["type"] != "input.checkbox") || $field["checked"])
+				{
+					if (!isset($fields[$field["name"]]))  $fields[$field["name"]] = array();
+					$fields[$field["name"]][] = $field["value"];
+				}
+			}
+
+			if ($method == "get")
+			{
+				$url = ExtractURL($this->info["action"]);
+				unset($url["query"]);
+				$url["queryvars"] = $fields;
+				$result = array(
+					"url" => CondenseURL($url),
+					"options" => array()
+				);
+			}
+			else
+			{
+				$result = array(
+					"url" => $this->info["action"],
+					"options" => array(
+						"postvars" => $fields,
+						"files" => $files
+					)
+				);
+			}
+
+			return $result;
 		}
 	}
 ?>
